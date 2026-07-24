@@ -79,3 +79,70 @@ def test_cli_invalid_folder(tmp_path):
         with pytest.raises(SystemExit) as excinfo:
             main()
         assert excinfo.value.code == 1
+
+
+def test_cli_date_filters(tmp_path):
+    """
+    Verifies that main.py CLI successfully filters trades using --start-date and --end-date.
+    """
+    sample_dir = os.path.abspath(
+        os.path.join(
+            os.path.dirname(__file__), "..", "tradingview-xlsx-export-samples"
+        )
+    )
+    output_dir = os.path.join(tmp_path, "output_reports_filtered")
+
+    # Let's filter to keep trades after 2020-01-01 and before 2026-12-31
+    test_args = [
+        "main.py",
+        "--folder", sample_dir,
+        "--output", output_dir,
+        "--start-date", "2020-01-01",
+        "--end-date", "2026-12-31",
+    ]
+
+    with patch.object(sys, "argv", test_args):
+        with patch.object(sys, "exit") as mock_exit:
+            main()
+            if mock_exit.called:
+                args, _ = mock_exit.call_args
+                assert args[0] == 0 or args[0] is None
+
+    assert os.path.exists(output_dir)
+
+
+def test_cli_invalid_date_formats(tmp_path):
+    """
+    Verifies that main.py CLI exits with an error code (1) when provided invalid date formats.
+    """
+    sample_dir = os.path.abspath(
+        os.path.join(
+            os.path.dirname(__file__), "..", "tradingview-xlsx-export-samples"
+        )
+    )
+    output_dir = os.path.join(tmp_path, "output_reports_invalid_date")
+
+    # Invalid start date
+    test_args = [
+        "main.py",
+        "--folder", sample_dir,
+        "--output", output_dir,
+        "--start-date", "invalid-date-format",
+    ]
+    with patch.object(sys, "argv", test_args):
+        with pytest.raises(SystemExit) as excinfo:
+            main()
+        assert excinfo.value.code == 1
+
+    # Invalid end date
+    test_args = [
+        "main.py",
+        "--folder", sample_dir,
+        "--output", output_dir,
+        "--end-date", "2025/12/31",  # incorrect format, requires YYYY-MM-DD
+    ]
+    with patch.object(sys, "argv", test_args):
+        with pytest.raises(SystemExit) as excinfo:
+            main()
+        assert excinfo.value.code == 1
+

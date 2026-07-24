@@ -474,3 +474,41 @@ def test_dynamic_scaling():
     # Check leverage returned in results
     assert results["leverage"] == 1.0
 
+
+def test_shared_capital_sizing_modes():
+    """Verify that sizing_mode='raw' maintains unscaled trade sizing and sizing_mode='relative' dynamically scales."""
+    t = datetime(2026, 7, 1, 12, 0, 0)
+    trades = [
+        Trade(
+            strategy_name="Strat_Raw",
+            trade_id=1,
+            entry_time=t,
+            exit_time=t + timedelta(hours=1),
+            side="Long",
+            entry_price=100.0,
+            exit_price=110.0,
+            contracts=10.0,
+            position_value=1000.0,
+            commission=0.0,
+            profit=100.0,
+            profit_percent=10.0,
+            holding_time=timedelta(hours=1),
+            initial_capital=None,
+        )
+    ]
+
+    # Test raw sizing mode
+    raw_engine = SharedCapitalEngine(initial_equity=5000.0, leverage=1.0, sizing_mode="raw")
+    raw_res = raw_engine.run(trades)
+    assert pytest.approx(raw_res["scaled_trades"][0].position_value) == 1000.0
+    assert pytest.approx(raw_res["ending_equity"]) == 5100.0
+
+    # Test relative_full sizing mode without initial_capital specified (scales based on equity & leverage)
+    rel_engine = SharedCapitalEngine(initial_equity=5000.0, leverage=1.0, sizing_mode="relative_full")
+    rel_res = rel_engine.run(trades)
+    # Target value: 5000 * 1.0 * 1.0 = 5000. Scale factor: 5000 / 1000 = 5.0. Scaled profit: 100 * 5 = 500.
+    assert pytest.approx(rel_res["scaled_trades"][0].position_value) == 5000.0
+    assert pytest.approx(rel_res["ending_equity"]) == 5500.0
+
+
+

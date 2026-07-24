@@ -285,6 +285,97 @@ class Account:
 
         return True
 
+    @staticmethod
+    def calculate_scaled_quantity(
+        equity: float,
+        strategy_weight: float,
+        price: float,
+        leverage: float = 1.0,
+        multiplier: float = 1.0,
+    ) -> float:
+        """
+        Calculates position quantity scaled relative to account equity, strategy weight, and leverage.
+
+        Args:
+            equity: Current portfolio equity.
+            strategy_weight: Weight allocated to the strategy (e.g. 0.25 for 25%).
+            price: Asset price.
+            leverage: Leverage factor (default 1.0).
+            multiplier: Asset contract size multiplier (default 1.0).
+
+        Returns:
+            float: Calculated position quantity.
+        """
+        if price <= 0 or multiplier <= 0 or equity <= 0 or strategy_weight <= 0:
+            return 0.0
+        target_value = equity * strategy_weight * leverage
+        return target_value / (price * multiplier)
+
+    @staticmethod
+    def calculate_trade_return_percent(
+        entry_price: float,
+        exit_price: float,
+        side: str,
+    ) -> float:
+        """
+        Calculates fractional percentage return of a trade based on entry/exit prices and position side.
+
+        Args:
+            entry_price: Weighted average entry price.
+            exit_price: Weighted average exit price.
+            side: Position side ('Long' or 'Short').
+
+        Returns:
+            float: Fractional return percentage (e.g. 0.05 for +5%).
+        """
+        if entry_price <= 0:
+            return 0.0
+        side_upper = str(side).upper()
+        if side_upper in ["LONG", "BUY"]:
+            return (exit_price - entry_price) / entry_price
+        elif side_upper in ["SHORT", "SELL"]:
+            return (entry_price - exit_price) / entry_price
+        return 0.0
+
+    def apply_normalized_fill(
+        self,
+        ticker: str,
+        action: str,
+        price: float,
+        commission: float,
+        strategy_weight: float = 1.0,
+        leverage: float = 1.0,
+        multiplier: float = 1.0,
+    ) -> float:
+        """
+        Applies an execution fill with quantity dynamically scaled relative to current
+        portfolio equity, strategy weight, and leverage.
+
+        Returns:
+            float: Executed quantity.
+        """
+        scaled_qty = self.calculate_scaled_quantity(
+            equity=self.equity,
+            strategy_weight=strategy_weight,
+            price=price,
+            leverage=leverage,
+            multiplier=multiplier,
+        )
+        if scaled_qty <= 0:
+            logger.warning(f"Scaled quantity for {ticker} is 0. Fill skipped.")
+            return 0.0
+
+        success = self.apply_fill(
+            ticker=ticker,
+            action=action,
+            quantity=scaled_qty,
+            price=price,
+            commission=commission,
+            multiplier=multiplier,
+        )
+        return scaled_qty if success else 0.0
+
+
 
 # ==============================================================================
 # Unit Tests
@@ -418,9 +509,45 @@ def test_account_leverage_margin_call():
     assert acct.is_margin_called
 
 
+def test_account_normalized_returns_and_scaling():
+    """Test fractional trade return calculation and dynamic capital-relative position sizing."""
+    # Test fractional return calculation
+    r_long = Account.calculate_trade_return_percent(100.0, 110.0, "LONG")
+    assert abs(r_long - 0.10) < 1e-6
+
+    r_short = Account.calculate_trade_return_percent(100.0, 90.0, "SHORT")
+    assert abs(r_short - 0.10) < 1e-6
+
+    # Test position quantity scaling
+    qty = Account.calculate_scaled_quantity(
+        equity=10000.0,
+        strategy_weight=0.25,
+        price=100.0,
+        leverage=2.0,
+    )
+    # Target Value = 10000 * 0.25 * 2.0 = 5000 USD
+    # Qty = 5000 / 100 = 50
+    assert abs(qty - 50.0) < 1e-6
+
+    # Test apply_normalized_fill
+    acct = Account(initial_capital=10000.0)
+    executed_qty = acct.apply_normalized_fill(
+        ticker="ETH",
+        action="BUY",
+        price=2000.0,
+        commission=10.0,
+        strategy_weight=0.5,
+        leverage=1.0,
+    )
+    # Target Value = 10000 * 0.5 = 5000 USD -> 2.5 ETH
+    assert abs(executed_qty - 2.5) < 1e-6
+    assert acct.positions["ETH"].quantity == 2.5
+
+
 # ==============================================================================
 # Usage Example
 # ==============================================================================
+
 
 
 def run_examples():

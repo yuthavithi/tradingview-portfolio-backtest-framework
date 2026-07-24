@@ -134,6 +134,27 @@ def main() -> None:
         action="store_true",
         help="Enable worst-case floating PnL modeling based on Maximum Adverse Excursion (MAE) instead of linear interpolation.",
     )
+    parser.add_argument(
+        "--sizing-mode",
+        type=str,
+        default="relative",
+        choices=["relative", "relative_full", "raw"],
+        help="Position sizing mode ('relative', 'relative_full', 'raw') (default: relative)",
+    )
+    parser.add_argument(
+        "--start-date",
+        type=str,
+        default=None,
+        help="Filter trades starting on or after this date (YYYY-MM-DD)",
+    )
+
+    parser.add_argument(
+        "--end-date",
+        type=str,
+        default=None,
+        help="Filter trades exiting on or before this date (YYYY-MM-DD)",
+    )
+
 
     args = parser.parse_args()
 
@@ -163,6 +184,28 @@ def main() -> None:
         sys.exit(1)
 
     logger.info(f"Imported {len(trades)} trades across all strategies.")
+
+    # Filter trades by date if requested
+    if args.start_date:
+        try:
+            start_dt = datetime.strptime(args.start_date, "%Y-%m-%d")
+            original_count = len(trades)
+            trades = [t for t in trades if t.entry_time >= start_dt]
+            logger.info(f"Filtered trades by start-date >= {args.start_date}: kept {len(trades)} of {original_count} trades.")
+        except ValueError:
+            logger.error(f"Invalid --start-date format: {args.start_date}. Use YYYY-MM-DD.")
+            sys.exit(1)
+
+    if args.end_date:
+        try:
+            end_dt = datetime.strptime(args.end_date, "%Y-%m-%d")
+            original_count = len(trades)
+            trades = [t for t in trades if t.exit_time <= end_dt]
+            logger.info(f"Filtered trades by end-date <= {args.end_date}: kept {len(trades)} of {original_count} trades.")
+        except ValueError:
+            logger.error(f"Invalid --end-date format: {args.end_date}. Use YYYY-MM-DD.")
+            sys.exit(1)
+
 
     # Configure risk parameters and engine
     if args.disable_risk_limits:
@@ -266,7 +309,9 @@ def main() -> None:
             initial_equity=args.capital,
             leverage=args.leverage,
             stress_test_drawdown=args.stress_test_drawdown,
+            sizing_mode=args.sizing_mode,
         )
+
         
         try:
             results = engine.run(trades, risk_engine=risk_engine)

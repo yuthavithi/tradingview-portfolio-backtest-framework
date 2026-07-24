@@ -692,16 +692,26 @@ class PortfolioReportGenerator:
             start_date = sorted_trades[0].entry_time.strftime("%Y-%m-%d")
             end_date = sorted_trades[-1].exit_time.strftime("%Y-%m-%d") if sorted_trades[-1].exit_time else sorted_trades[-1].entry_time.strftime("%Y-%m-%d")
 
+        sizing_mode_raw = self.results.get("sizing_mode", "relative")
+        sizing_mode_map = {
+            "relative": "Capital-Relative Dynamic Scaling (Normalized)",
+            "relative_full": "Capital-Relative Full Dynamic Scaling",
+            "raw": "Raw Unscaled Position Sizing",
+        }
+        sizing_mode_label = sizing_mode_map.get(str(sizing_mode_raw).lower(), str(sizing_mode_raw))
+
         summary_para = (
             f"This backtest report summarizes the quantitative simulation of the portfolio <b>{self.portfolio_name}</b> "
             f"covering the period from <b>{start_date}</b> to <b>{end_date}</b>. "
             f"Starting with an initial capital of <b>${initial_equity:,.2f}</b>, the portfolio concluded the simulation "
             f"with an ending equity of <b>${ending_equity:,.2f}</b>, generating a net PnL of <b>${net_profit:+,.2f}</b> "
             f"(<b>{net_profit_pct:+.2f}%</b>). A total of <b>{len(self.trades)}</b> trades were evaluated across all strategies. "
-            f"The simulation enforced margin leverage constraint checks, position sizing parameters, and risk limits as defined in the rules."
+            f"The simulation method employed is <b>Event-Driven Shared Capital Simulation</b> using <b>{sizing_mode_label}</b>, "
+            f"enforcing margin leverage constraint checks, position sizing parameters, and risk limits as defined in the rules."
         )
         story.append(Paragraph(summary_para, style_body))
         story.append(Spacer(1, 10))
+
 
         # --- Section 2: Portfolio Performance ---
         story.append(Paragraph("Portfolio Performance & Risk Ratios", style_h1))
@@ -1043,11 +1053,21 @@ class PortfolioReportGenerator:
 
         reasons_text = ", ".join(reasons_list) if reasons_list else "None"
 
+        engine_sizing_mode = self.results.get("sizing_mode", "relative")
+        sizing_mode_map = {
+            "relative": "Relative (Capital-Relative)",
+            "relative_full": "Relative Full (Dynamic)",
+            "raw": "Raw (Unscaled)",
+        }
+        display_sizing_mode = sizing_mode_map.get(str(engine_sizing_mode).lower(), str(engine_sizing_mode))
+
+
         risk_data = [
             [Paragraph("Risk Parameter / Constraint", style_table_header), Paragraph("Value", style_table_header),
              Paragraph("Risk Observation / Limit Metrics", style_table_header), Paragraph("Value", style_table_header)],
-            [Paragraph("Position Sizing Model", style_table_cell), Paragraph(str(sizing_mode).upper(), style_table_cell_bold),
+            [Paragraph("Position Sizing Model", style_table_cell), Paragraph(display_sizing_mode, style_table_cell_bold),
              Paragraph("Total Trades Evaluated", style_table_cell), Paragraph(str(total_eval), style_table_cell_bold)],
+
             [Paragraph("Leverage Applied", style_table_cell), Paragraph(str(leverage), style_table_cell_bold),
              Paragraph("Trades Blocked by Risk", style_table_cell), Paragraph(str(blocked), style_table_cell_bold)],
             [Paragraph("Max Allowed Portfolio Risk", style_table_cell), Paragraph(max_allowed_risk, style_table_cell_bold),

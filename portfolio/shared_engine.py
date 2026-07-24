@@ -69,6 +69,7 @@ class SharedCapitalEngine:
         leverage: float = 10.0,
         strategy_weights: Optional[Dict[str, float]] = None,
         stress_test_drawdown: bool = False,
+        sizing_mode: str = "relative",
     ) -> None:
         """
         Initializes the Shared Capital Engine.
@@ -76,12 +77,17 @@ class SharedCapitalEngine:
         Args:
             initial_equity: The starting account capital in USDT.
             leverage: The leverage factor (e.g. 10.0 for 10x).
+            strategy_weights: Optional allocation weights dictionary per strategy.
+            stress_test_drawdown: Flag to enable worst-case drawdown stress testing.
+            sizing_mode: Sizing model ('relative' for dynamic capital scaling, 'raw' for unscaled).
         """
         self.initial_equity = initial_equity
         self.leverage = leverage
         self.stress_test_drawdown = stress_test_drawdown
         self.strategy_weights = strategy_weights or {}
+        self.sizing_mode = sizing_mode.lower()
         self.queue = EventQueue()
+
 
         # Engine state variables
         self.cash = initial_equity
@@ -210,7 +216,7 @@ class SharedCapitalEngine:
             # Recalculate floating PnL and equity after exits are processed
             self._update_floating_pnl(current_time)
 
-            # 1.5 Scale requests based on current equity
+            # 1.5 Scale requests based on current equity and sizing_mode
             for event in requests:
                 self._update_floating_pnl(current_time)
                 weight = self.strategy_weights.get(event.strategy_name, 1.0)
@@ -219,7 +225,9 @@ class SharedCapitalEngine:
                 # Add to strategy active trades tracking (for unscaled strat equity calculation)
                 self.strategy_active_trades.setdefault(event.strategy_name, []).append(event.trade)
                 
-                if strategy_initial and strategy_initial > 0:
+                if self.sizing_mode == "raw":
+                    scale_factor = weight
+                elif strategy_initial and strategy_initial > 0:
                     # Calculate strategy's own unscaled equity at this time
                     strat_floating = self._get_strategy_floating_profit(event.strategy_name, current_time)
                     strat_realized = self.strategy_realized_profits.get(event.strategy_name, 0.0)
@@ -227,12 +235,17 @@ class SharedCapitalEngine:
                     
                     # scale_factor = (portfolio_equity * weight) / strategy_equity
                     scale_factor = (self.equity * weight) / strat_equity
+                elif self.sizing_mode == "relative_full" and event.trade.position_value > 0 and self.initial_equity > 0:
+                    target_position_value = self.equity * weight * self.leverage
+                    scale_factor = target_position_value / event.trade.position_value
                 else:
                     scale_factor = weight
+
                     
                 event.scale_factor = scale_factor
                 event.position_value *= scale_factor
                 event.profit *= scale_factor
+
 
             # 2. Process requests. Check for multi-strategy conflict
             unique_strategies = set(e.strategy_name for e in requests)
@@ -552,9 +565,11 @@ class SharedCapitalEngine:
         metrics = {
             "initial_equity": self.initial_equity,
             "leverage": self.leverage,
+            "sizing_mode": self.sizing_mode,
             "ending_equity": self.equity,
             "cagr": cagr,
             "max_drawdown": max_drawdown,
+
             "equity_curve": equity_curve,
             "drawdown_curve": drawdown_curve,
             "monthly_returns": monthly_returns,
